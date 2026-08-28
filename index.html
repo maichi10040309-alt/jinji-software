@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#2563eb">
+  <title>人事管理ソフト</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="brand"><span class="brand-mark">人</span><div><strong>人事管理</strong><small>HR Manager</small></div></div>
+    <nav id="nav">
+      <button class="active" data-page="dashboard">⌂ ダッシュボード</button>
+      <button data-page="employee-form">＋ 社員登録</button>
+      <button data-page="employees">▤ 社員一覧</button>
+      <button data-page="leave">☀ 有給管理</button>
+      <button data-page="entry-exit">⇄ 入社・退社登録</button>
+      <button data-page="retirees">♙ 退職者一覧</button>
+      <button data-page="ledger">▧ 労働者名簿</button>
+      <button data-page="settings">⚙ データ管理</button>
+    </nav>
+    <div class="sidebar-note">データはこのブラウザ内に保存されます</div>
+  </aside>
+
+  <main>
+    <header><button id="menuBtn" class="menu-btn">☰</button><div><h1 id="pageTitle">ダッシュボード</h1><p id="today"></p></div></header>
+
+    <section id="dashboard" class="page active">
+      <div class="stats">
+        <article><span>在籍社員</span><strong id="statActive">0</strong><small>名</small></article>
+        <article><span>今月の入社</span><strong id="statJoined">0</strong><small>名</small></article>
+        <article><span>今月の退職</span><strong id="statRetired">0</strong><small>名</small></article>
+        <article><span>有給残日数</span><strong id="statLeave">0</strong><small>日（合計）</small></article>
+      </div>
+      <div class="grid-two">
+        <article class="panel"><div class="panel-head"><h2>社員情報</h2><button data-go="employee-form" class="primary small">社員を登録</button></div><div id="recentEmployees" class="empty">社員が登録されていません</div></article>
+        <article class="panel"><h2>お知らせ</h2><div id="alerts" class="empty">現在のお知らせはありません</div></article>
+      </div>
+    </section>
+
+    <section id="employee-form" class="page">
+      <form id="employeeForm" class="panel form-panel">
+        <input type="hidden" id="employeeId">
+        <div class="panel-head"><div><h2 id="employeeFormTitle">社員登録</h2><p>基本情報・雇用情報・連絡先を入力してください。</p></div><button type="button" id="resetEmployee" class="ghost">入力をクリア</button></div>
+        <fieldset><legend>基本情報</legend><div class="form-grid">
+          <label>社員番号<span>*</span><input id="employeeNo" required placeholder="例：001"></label>
+          <label>氏名<span>*</span><input id="name" required placeholder="例：山田 太郎"></label>
+          <label>氏名（フリガナ）<input id="kana" placeholder="例：ヤマダ タロウ"></label>
+          <label>生年月日<input id="birthDate" type="date"></label>
+          <label>性別<select id="gender"><option value="">未選択</option><option>男性</option><option>女性</option><option>その他・回答しない</option></select></label>
+          <label>マイナンバー<input id="myNumber" inputmode="numeric" maxlength="12" placeholder="12桁（任意）"></label>
+        </div></fieldset>
+        <fieldset><legend>雇用情報</legend><div class="form-grid">
+          <label>入社日<span>*</span><input id="hireDate" type="date" required></label>
+          <label>所属部署<input id="department" placeholder="例：福祉用具事業部"></label>
+          <label>役職<input id="position" placeholder="例：営業"></label>
+          <label>雇用形態<select id="employmentType"><option>正社員</option><option>契約社員</option><option>パート・アルバイト</option><option>役員</option><option>その他</option></select></label>
+          <label>週所定労働日数<input id="weeklyDays" type="number" min="1" max="7" step="0.5" value="5"></label>
+          <label>1日の所定労働時間<input id="dailyHours" type="number" min="1" max="24" step="0.25" value="8"></label>
+        </div></fieldset>
+        <fieldset><legend>住所・連絡先</legend><div class="form-grid">
+          <label>郵便番号<input id="postalCode" placeholder="例：640-0000"></label>
+          <label class="wide">住所<input id="address" placeholder="都道府県から入力"></label>
+          <label>電話番号<input id="phone" type="tel" placeholder="例：090-0000-0000"></label>
+          <label>メールアドレス<input id="email" type="email"></label>
+          <label>緊急連絡先氏名<input id="emergencyName"></label>
+          <label>緊急連絡先電話番号<input id="emergencyPhone" type="tel"></label>
+        </div></fieldset>
+        <fieldset><legend>社会保険等</legend><div class="form-grid">
+          <label>基礎年金番号<input id="pensionNo"></label><label>雇用保険被保険者番号<input id="employmentInsuranceNo"></label>
+          <label>健康保険被保険者証番号<input id="healthInsuranceNo"></label><label class="wide">備考<textarea id="notes" rows="3"></textarea></label>
+        </div></fieldset>
+        <div class="form-actions"><button type="button" class="ghost" data-go="employees">キャンセル</button><button class="primary" type="submit">保存する</button></div>
+      </form>
+    </section>
+
+    <section id="employees" class="page"><article class="panel"><div class="panel-head"><div><h2>社員一覧</h2><p>在籍中の社員を検索・編集できます。</p></div><button data-go="employee-form" class="primary">＋社員登録</button></div><div class="toolbar"><input id="employeeSearch" type="search" placeholder="氏名・社員番号・部署で検索"><select id="departmentFilter"><option value="">すべての部署</option></select></div><div class="table-wrap"><table><thead><tr><th>社員番号</th><th>氏名</th><th>部署</th><th>雇用形態</th><th>入社日</th><th>有給残</th><th></th></tr></thead><tbody id="employeeRows"></tbody></table></div></article></section>
+
+    <section id="leave" class="page"><div class="grid-leave"><article class="panel"><h2>有給休暇を登録</h2><form id="leaveForm" class="stack"><label>社員<span>*</span><select id="leaveEmployee" required></select></label><label>区分<select id="leaveType"><option value="grant">付与</option><option value="take">取得</option><option value="adjust">調整</option></select></label><label>日付<span>*</span><input id="leaveDate" type="date" required></label><label>日数<span>*</span><input id="leaveDays" type="number" min="0.125" step="0.125" required placeholder="例：1 または 0.5"></label><label>備考<input id="leaveNote" placeholder="例：年次付与、私用"></label><button class="primary" type="submit">履歴に追加</button></form></article><article class="panel"><h2>有給残日数</h2><div class="table-wrap"><table><thead><tr><th>社員</th><th>付与</th><th>取得</th><th>残日数</th></tr></thead><tbody id="leaveSummaryRows"></tbody></table></div></article></div><article class="panel"><div class="panel-head"><h2>有給履歴</h2><select id="leaveHistoryFilter"><option value="">全社員</option></select></div><div class="table-wrap"><table><thead><tr><th>日付</th><th>社員</th><th>区分</th><th>日数</th><th>備考</th><th></th></tr></thead><tbody id="leaveHistoryRows"></tbody></table></div></article></section>
+
+    <section id="entry-exit" class="page"><div class="grid-two"><article class="panel"><h2>入社登録</h2><p>新しい社員の基本情報を登録します。</p><button data-go="employee-form" class="primary">＋社員登録画面へ</button></article><article class="panel danger-panel"><h2>退社登録</h2><form id="retireForm" class="stack"><label>対象社員<span>*</span><select id="retireEmployee" required></select></label><label>退職日<span>*</span><input id="retireDate" type="date" required></label><label>退職理由<select id="retireReason"><option>自己都合</option><option>会社都合</option><option>定年</option><option>契約期間満了</option><option>その他</option></select></label><label>詳細・備考<textarea id="retireNote" rows="3"></textarea></label><button class="danger" type="submit">退職者として登録</button></form></article></div></section>
+
+    <section id="retirees" class="page"><article class="panel"><div class="panel-head"><div><h2>退職者一覧</h2><p>退職済みの社員を確認できます。</p></div><input id="retireeSearch" type="search" placeholder="氏名・社員番号で検索"></div><div class="table-wrap"><table><thead><tr><th>社員番号</th><th>氏名</th><th>部署</th><th>入社日</th><th>退職日</th><th>理由</th><th></th></tr></thead><tbody id="retireeRows"></tbody></table></div></article></section>
+
+    <section id="ledger" class="page"><article class="panel"><div class="panel-head"><div><h2>労働者名簿</h2><p>労働基準法第107条の保存を想定した名簿です。</p></div><div class="actions"><select id="ledgerEmployee"></select><button id="printLedger" class="primary">印刷・PDF保存</button></div></div><div id="ledgerSheet" class="ledger-sheet"></div></article></section>
+
+    <section id="settings" class="page"><div class="grid-two"><article class="panel"><h2>バックアップ</h2><p>社員情報と有給履歴をJSONファイルに保存します。</p><button id="exportData" class="primary">バックアップを書き出す</button></article><article class="panel"><h2>復元</h2><p>書き出したJSONファイルからデータを復元します。</p><label class="file-label">バックアップを選択<input id="importData" type="file" accept="application/json"></label></article></div><article class="panel danger-panel"><h2>全データ削除</h2><p>このブラウザに保存されている全データを消去します。この操作は元に戻せません。</p><button id="clearData" class="danger">全データを削除</button></article></section>
+  </main>
+  <div id="toast" class="toast"></div>
+  <script src="app.js"></script>
+</body>
+</html>
