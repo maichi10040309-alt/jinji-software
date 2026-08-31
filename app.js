@@ -32,6 +32,56 @@ function selectLedger(id){$('ledgerEmployee').value=id;renderLedger();showPage('
 function renderLedger(){const select=$('ledgerEmployee');const current=select.value;select.innerHTML=data.employees.map(e=>`<option value="${e.id}">${esc(e.employeeNo)} ${esc(e.name)}</option>`).join('');if(current&&data.employees.some(e=>e.id===current))select.value=current;const e=data.employees.find(x=>x.id===select.value)||data.employees[0];$('ledgerSheet').innerHTML=e?`<h2>労働者名簿</h2><table class="ledger-table"><tr><th>氏名</th><td>${esc(e.name)}</td><th>生年月日</th><td>${fmt(e.birthDate)}</td></tr><tr><th>氏名（フリガナ）</th><td>${esc(e.kana||'-')}</td><th>性別</th><td>${esc(e.gender||'-')}</td></tr><tr><th>住所</th><td colspan="3">〒${esc(e.postalCode||'-')}　${esc(e.address||'-')}</td></tr><tr><th>雇入年月日</th><td>${fmt(e.hireDate)}</td><th>従事する業務</th><td>${esc([e.department,e.position].filter(Boolean).join(' / ')||'-')}</td></tr><tr><th>雇用形態</th><td>${esc(e.employmentType)}</td><th>社員番号</th><td>${esc(e.employeeNo)}</td></tr><tr><th>退職年月日</th><td>${fmt(e.retireDate)}</td><th>退職事由</th><td>${esc(e.retireReason||'-')}</td></tr><tr><th>電話番号</th><td>${esc(e.phone||'-')}</td><th>備考</th><td>${esc(e.notes||'-')}</td></tr></table><p style="margin-top:28px">作成日：${new Intl.DateTimeFormat('ja-JP').format(new Date())}</p>`:'<div class="empty">社員を登録すると労働者名簿を表示できます</div>'}$('ledgerEmployee').onchange=renderLedger;$('printLedger').onclick=()=>window.print();
 function renderSelectDefaults(){if(!$('leaveDate').value)$('leaveDate').value=new Date().toISOString().slice(0,10);if(!$('retireDate').value)$('retireDate').value=new Date().toISOString().slice(0,10)}
 function renderAll(){renderDashboard();renderEmployees();renderLeave();renderRetire();renderLedger();renderSelectDefaults()}
+function parseCsv(text){
+  const rows=[];let row=[],field='',quoted=false;
+  for(let i=0;i<text.length;i++){
+    const c=text[i],next=text[i+1];
+    if(c==='"'&&quoted&&next==='"'){field+='"';i++}
+    else if(c==='"')quoted=!quoted;
+    else if(c===','&&!quoted){row.push(field);field=''}
+    else if((c==='\n'||c==='\r')&&!quoted){if(c==='\r'&&next==='\n')i++;row.push(field);field='';if(row.some(v=>v!==''))rows.push(row);row=[]}
+    else field+=c;
+  }
+  if(field!==''||row.length){row.push(field);if(row.some(v=>v!==''))rows.push(row)}
+  return rows;
+}
+function csvDate(value){
+  const v=(value||'').trim();if(!v)return'';
+  const m=v.match(/^(\d{4})[\/-](\d{1,2})[\/-](\d{1,2})$/);
+  return m?`${m[1]}-${m[2].padStart(2,'0')}-${m[3].padStart(2,'0')}`:v;
+}
+function decodeCsv(buffer){
+  try{return new TextDecoder('utf-8',{fatal:true}).decode(buffer).replace(/^\uFEFF/,'')}
+  catch{return new TextDecoder('shift_jis').decode(buffer).replace(/^\uFEFF/,'')}
+}
+function setCsvLeaveBalance(employeeId,balance){
+  const importId=`csv-leave-${employeeId}`;
+  const otherBalance=data.leaves.filter(l=>l.employeeId===employeeId&&l.id!==importId).reduce((n,l)=>n+(l.type==='take'?-Number(l.days):Number(l.days)),0);
+  data.leaves=data.leaves.filter(l=>l.id!==importId);
+  const adjustment=Number(balance)-otherBalance;
+  if(Math.abs(adjustment)>0.0001)data.leaves.push({id:importId,employeeId,type:'adjust',date:new Date().toISOString().slice(0,10),days:adjustment,note:'従業員CSV取込時の有給残数調整'});
+}
+$('employeeCsv').onchange=async event=>{
+  const file=event.target.files[0],result=$('csvImportResult');if(!file)return;
+  try{
+    const rows=parseCsv(decodeCsv(await file.arrayBuffer()));if(rows.length<2)throw new Error('取込対象のデータがありません');
+    const headers=rows[0].map(h=>h.trim()),required=['従業員コード','姓','名','雇用区分コード'];
+    if(required.some(h=>!headers.includes(h)))throw new Error('対応する従業員CSVではありません');
+    const col=name=>headers.indexOf(name);let added=0,updated=0,skipped=0;
+    for(const row of rows.slice(1)){
+      const employeeNo=(row[col('従業員コード')]||'').trim();if(!employeeNo){skipped++;continue}
+      const existing=data.employees.find(x=>x.employeeNo===employeeNo),id=existing?.id||uid();
+      const dailyRaw=Number(row[col('日の契約労働時間')]||0),dailyHours=dailyRaw>24?dailyRaw/60:dailyRaw;
+      const code=(row[col('雇用区分コード')]||'').trim(),departmentCode=(row[col('所属コード')]||'').trim();
+      const imported={id,employeeNo,name:[row[col('姓')],row[col('名')]].filter(Boolean).join(' ').trim(),kana:[row[col('姓カナ')],row[col('名カナ')]].filter(Boolean).join(' ').trim(),birthDate:csvDate(row[col('生年月日')]),hireDate:csvDate(row[col('入社日')]),department:departmentCode?`所属 ${departmentCode}`:'',employmentType:code==='1000'?'正社員':code==='2000'?'パート・アルバイト':`その他（${code||'未設定'}）`,email:(row[col('メールアドレス')]||'').trim(),dailyHours:dailyHours||existing?.dailyHours||'',weeklyDays:(row[col('週の契約労働日数')]||'').trim()||existing?.weeklyDays||''};
+      if(existing){Object.keys(imported).forEach(k=>{if(imported[k]!==''||k==='department')existing[k]=imported[k]});updated++}
+      else{data.employees.push({...imported,position:'',gender:'',myNumber:'',postalCode:'',address:'',phone:'',emergencyName:'',emergencyPhone:'',pensionNo:'',employmentInsuranceNo:'',healthInsuranceNo:'',notes:''});added++}
+      const leave=(row[col('有休')]||'').trim();if(leave!==''&&!Number.isNaN(Number(leave)))setCsvLeaveBalance(id,Number(leave));
+    }
+    saveData();result.hidden=false;result.textContent=`取込完了：新規 ${added}名、更新 ${updated}名、除外 ${skipped}件`;toast('従業員CSVを取り込みました');showPage('employees');
+  }catch(error){result.hidden=false;result.textContent=`取込できませんでした：${error.message}`}
+  event.target.value='';
+};
 $('exportData').onclick=()=>{const blob=new Blob([JSON.stringify({...data,exportedAt:new Date().toISOString()},null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`人事管理バックアップ_${new Date().toISOString().slice(0,10)}.json`;a.click();URL.revokeObjectURL(a.href);toast('バックアップを書き出しました')};
 $('importData').onchange=async e=>{const file=e.target.files[0];if(!file)return;try{const parsed=JSON.parse(await file.text());if(!Array.isArray(parsed.employees)||!Array.isArray(parsed.leaves))throw Error();if(!confirm('現在のデータをバックアップ内容で置き換えますか？'))return;data={employees:parsed.employees,leaves:parsed.leaves};saveData();toast('データを復元しました')}catch{alert('正しいバックアップファイルではありません')}e.target.value=''};
 $('clearData').onclick=()=>{if(!confirm('本当に全データを削除しますか？'))return;if(!confirm('この操作は元に戻せません。削除を実行しますか？'))return;data={employees:[],leaves:[]};saveData();resetEmployeeForm();toast('全データを削除しました')};
