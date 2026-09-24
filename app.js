@@ -26,7 +26,14 @@ $('leaveForm').onsubmit=e=>{e.preventDefault();data.leaves.push({id:uid(),employ
 function deleteLeave(id){if(!confirm('この有給履歴を削除しますか？'))return;data.leaves=data.leaves.filter(l=>l.id!==id);saveData();toast('履歴を削除しました')}
 function dayText(value){return Number(value).toFixed(3).replace(/\.?0+$/,'')+'日'}
 function monthlyLeaveId(month,employeeId){return`monthly-leave-${month}-${employeeId}`}
-function monthLastDay(month){const [year,value]=month.split('-').map(Number);return`${month}-${String(new Date(year,value,0).getDate()).padStart(2,'0')}`}
+function dateText(date){const [year,month,day]=date.split('-').map(Number);return`${year}年${month}月${day}日`}
+function leavePeriod(month){
+  const [year,value]=month.split('-').map(Number),pad=n=>String(n).padStart(2,'0');
+  if(value===3)return{start:`${year}-02-16`,end:`${year}-03-31`};
+  if(value===4)return{start:`${year}-04-01`,end:`${year}-04-15`};
+  const previous=new Date(year,value-2,1);
+  return{start:`${previous.getFullYear()}-${pad(previous.getMonth()+1)}-16`,end:`${year}-${pad(value)}-15`};
+}
 function previewMonthlyLeave(input){
   const row=input.closest('tr'),desired=Number(input.value||0),carry=Number(input.dataset.carry||0),granted=Number(input.dataset.granted||0),cell=row.querySelector('[data-month-end]'),end=carry+granted-desired;
   cell.textContent=dayText(end);cell.style.color=end<0?'#dc2626':'';
@@ -36,11 +43,12 @@ function renderLeave(){
   const opts=activeEmployees().map(e=>`<option value="${e.id}">${esc(e.employeeNo)} ${esc(e.name)}</option>`).join('');
   $('leaveEmployee').innerHTML='<option value="">社員を選択</option>'+opts;if(employeeValue)$('leaveEmployee').value=employeeValue;
   $('leaveHistoryFilter').innerHTML='<option value="">全社員</option>'+data.employees.map(e=>`<option value="${e.id}">${esc(e.name)}</option>`).join('');if(historyEmployee)$('leaveHistoryFilter').value=historyEmployee;
-  const month=$('leaveMonth').value||new Date().toISOString().slice(0,7),start=month+'-01';$('leaveMonth').value=month;
+  const month=$('leaveMonth').value||new Date().toISOString().slice(0,7),period=leavePeriod(month),start=period.start,endDate=period.end;$('leaveMonth').value=month;
+  $('leavePeriodLabel').textContent=`${month.replace('-','年')}月分の管理期間：${dateText(start)} ～ ${dateText(endDate)}`;
   $('leaveSummaryRows').innerHTML=activeEmployees().length?activeEmployees().map(e=>{
-    const ls=data.leaves.filter(l=>l.employeeId===e.id),before=ls.filter(l=>l.date<start),current=ls.filter(l=>l.date?.startsWith(month));
+    const ls=data.leaves.filter(l=>l.employeeId===e.id),bulkId=monthlyLeaveId(month,e.id),before=ls.filter(l=>l.id!==bulkId&&l.date<start),current=ls.filter(l=>l.id!==bulkId&&l.date>=start&&l.date<=endDate);
     const carry=before.reduce((n,l)=>n+(l.type==='take'?-Number(l.days):Number(l.days)),0);
-    const granted=current.filter(l=>l.type!=='take').reduce((n,l)=>n+Number(l.days),0),bulkId=monthlyLeaveId(month,e.id),otherUsed=current.filter(l=>l.type==='take'&&l.id!==bulkId).reduce((n,l)=>n+Number(l.days),0),bulkUsed=Number(current.find(l=>l.id===bulkId)?.days||0),used=otherUsed+bulkUsed,end=carry+granted-used;
+    const granted=current.filter(l=>l.type!=='take').reduce((n,l)=>n+Number(l.days),0),otherUsed=current.filter(l=>l.type==='take').reduce((n,l)=>n+Number(l.days),0),bulkUsed=Number(ls.find(l=>l.id===bulkId)?.days||0),used=otherUsed+bulkUsed,end=carry+granted-used;
     return`<tr><td>${esc(e.employeeNo)}</td><td><b>${esc(e.name)}</b></td><td>${dayText(carry)}</td><td>${dayText(granted)}</td><td><input class="monthly-leave-input" data-employee-id="${e.id}" data-employee-name="${esc(e.name)}" data-other-used="${otherUsed}" data-carry="${carry}" data-granted="${granted}" type="number" min="${otherUsed}" step="0.125" value="${used}" oninput="previewMonthlyLeave(this)"></td><td><b data-month-end style="${end<0?'color:#dc2626':''}">${dayText(end)}</b></td></tr>`
   }).join(''):'<tr><td class="empty-cell" colspan="6">社員が登録されていません</td></tr>';
   const historyMonth=$('leaveHistoryMonth').value,months=[...new Set(data.leaves.map(l=>l.date?.slice(0,7)).filter(Boolean))].sort().reverse();
@@ -48,13 +56,13 @@ function renderLeave(){
   renderLeaveHistory();
 }
 $('saveMonthlyLeave').onclick=()=>{
-  const month=$('leaveMonth').value,inputs=[...document.querySelectorAll('.monthly-leave-input')];if(!month||!inputs.length)return;
+  const month=$('leaveMonth').value,period=leavePeriod(month),inputs=[...document.querySelectorAll('.monthly-leave-input')];if(!month||!inputs.length)return;
   const invalid=inputs.find(input=>input.value===''||Number(input.value)<Number(input.dataset.otherUsed)||Number(input.value)<0);
   if(invalid){alert(`${invalid.dataset.employeeName}さんの使用日数を確認してください。個別登録済みの日数（${dayText(invalid.dataset.otherUsed)}）より少なくする場合は、先に該当履歴を削除してください。`);invalid.focus();return}
   inputs.forEach(input=>{
     const employeeId=input.dataset.employeeId,id=monthlyLeaveId(month,employeeId),otherUsed=Number(input.dataset.otherUsed),totalUsed=Number(input.value),bulkDays=totalUsed-otherUsed;
     data.leaves=data.leaves.filter(l=>l.id!==id);
-    if(bulkDays>0)data.leaves.push({id,employeeId,type:'take',date:monthLastDay(month),days:bulkDays,note:`${month.replace('-','年')}月 月次一括入力`});
+    if(bulkDays>0)data.leaves.push({id,employeeId,type:'take',date:period.end,days:bulkDays,note:`${month.replace('-','年')}月分（${dateText(period.start)}～${dateText(period.end)}）一括入力`});
   });
   saveData();toast(`${month.replace('-','年')}月分の有給使用日数を一括保存しました`);
 };
