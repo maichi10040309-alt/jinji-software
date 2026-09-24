@@ -24,8 +24,42 @@ function renderEmployees(){const q=$('employeeSearch').value.toLowerCase(),dep=$
 $('employeeSearch').oninput=renderEmployees;$('departmentFilter').onchange=renderEmployees;
 $('leaveForm').onsubmit=e=>{e.preventDefault();data.leaves.push({id:uid(),employeeId:$('leaveEmployee').value,type:$('leaveType').value,date:$('leaveDate').value,days:Number($('leaveDays').value),note:$('leaveNote').value.trim()});saveData();e.target.reset();$('leaveDate').value=new Date().toISOString().slice(0,10);toast('有給履歴を登録しました')};
 function deleteLeave(id){if(!confirm('この有給履歴を削除しますか？'))return;data.leaves=data.leaves.filter(l=>l.id!==id);saveData();toast('履歴を削除しました')}
-function renderLeave(){const opts=activeEmployees().map(e=>`<option value="${e.id}">${esc(e.employeeNo)} ${esc(e.name)}</option>`).join('');$('leaveEmployee').innerHTML='<option value="">社員を選択</option>'+opts;$('leaveHistoryFilter').innerHTML='<option value="">全社員</option>'+data.employees.map(e=>`<option value="${e.id}">${esc(e.name)}</option>`).join('');$('leaveSummaryRows').innerHTML=activeEmployees().length?activeEmployees().map(e=>{const ls=data.leaves.filter(l=>l.employeeId===e.id),g=ls.filter(l=>l.type!=='take').reduce((n,l)=>n+Number(l.days),0),t=ls.filter(l=>l.type==='take').reduce((n,l)=>n+Number(l.days),0);return`<tr><td>${esc(e.name)}</td><td>${g}日</td><td>${t}日</td><td><b>${(g-t).toFixed(1).replace('.0','')}日</b></td></tr>`}).join(''):'<tr><td class="empty-cell" colspan="4">社員が登録されていません</td></tr>';renderLeaveHistory()}
-function renderLeaveHistory(){const filter=$('leaveHistoryFilter').value,list=[...data.leaves].filter(l=>!filter||l.employeeId===filter).sort((a,b)=>b.date.localeCompare(a.date));$('leaveHistoryRows').innerHTML=list.length?list.map(l=>{const e=data.employees.find(x=>x.id===l.employeeId);return`<tr><td>${fmt(l.date)}</td><td>${esc(e?.name||'削除済み')}</td><td>${l.type==='grant'?'付与':l.type==='take'?'取得':'調整'}</td><td>${l.type==='take'?'-':'+'}${l.days}日</td><td>${esc(l.note||'-')}</td><td><button class="icon-btn" onclick="deleteLeave('${l.id}')">削除</button></td></tr>`}).join(''):'<tr><td class="empty-cell" colspan="6">履歴はありません</td></tr>'}$('leaveHistoryFilter').onchange=renderLeaveHistory;
+function dayText(value){return Number(value).toFixed(3).replace(/\.?0+$/,'')+'日'}
+function monthlyLeaveId(month,employeeId){return`monthly-leave-${month}-${employeeId}`}
+function monthLastDay(month){const [year,value]=month.split('-').map(Number);return`${month}-${String(new Date(year,value,0).getDate()).padStart(2,'0')}`}
+function previewMonthlyLeave(input){
+  const row=input.closest('tr'),desired=Number(input.value||0),carry=Number(input.dataset.carry||0),granted=Number(input.dataset.granted||0),cell=row.querySelector('[data-month-end]'),end=carry+granted-desired;
+  cell.textContent=dayText(end);cell.style.color=end<0?'#dc2626':'';
+}
+function renderLeave(){
+  const employeeValue=$('leaveEmployee').value,historyEmployee=$('leaveHistoryFilter').value;
+  const opts=activeEmployees().map(e=>`<option value="${e.id}">${esc(e.employeeNo)} ${esc(e.name)}</option>`).join('');
+  $('leaveEmployee').innerHTML='<option value="">社員を選択</option>'+opts;if(employeeValue)$('leaveEmployee').value=employeeValue;
+  $('leaveHistoryFilter').innerHTML='<option value="">全社員</option>'+data.employees.map(e=>`<option value="${e.id}">${esc(e.name)}</option>`).join('');if(historyEmployee)$('leaveHistoryFilter').value=historyEmployee;
+  const month=$('leaveMonth').value||new Date().toISOString().slice(0,7),start=month+'-01';$('leaveMonth').value=month;
+  $('leaveSummaryRows').innerHTML=activeEmployees().length?activeEmployees().map(e=>{
+    const ls=data.leaves.filter(l=>l.employeeId===e.id),before=ls.filter(l=>l.date<start),current=ls.filter(l=>l.date?.startsWith(month));
+    const carry=before.reduce((n,l)=>n+(l.type==='take'?-Number(l.days):Number(l.days)),0);
+    const granted=current.filter(l=>l.type!=='take').reduce((n,l)=>n+Number(l.days),0),bulkId=monthlyLeaveId(month,e.id),otherUsed=current.filter(l=>l.type==='take'&&l.id!==bulkId).reduce((n,l)=>n+Number(l.days),0),bulkUsed=Number(current.find(l=>l.id===bulkId)?.days||0),used=otherUsed+bulkUsed,end=carry+granted-used;
+    return`<tr><td>${esc(e.employeeNo)}</td><td><b>${esc(e.name)}</b></td><td>${dayText(carry)}</td><td>${dayText(granted)}</td><td><input class="monthly-leave-input" data-employee-id="${e.id}" data-employee-name="${esc(e.name)}" data-other-used="${otherUsed}" data-carry="${carry}" data-granted="${granted}" type="number" min="${otherUsed}" step="0.125" value="${used}" oninput="previewMonthlyLeave(this)"></td><td><b data-month-end style="${end<0?'color:#dc2626':''}">${dayText(end)}</b></td></tr>`
+  }).join(''):'<tr><td class="empty-cell" colspan="6">社員が登録されていません</td></tr>';
+  const historyMonth=$('leaveHistoryMonth').value,months=[...new Set(data.leaves.map(l=>l.date?.slice(0,7)).filter(Boolean))].sort().reverse();
+  $('leaveHistoryMonth').innerHTML='<option value="">全期間</option>'+months.map(m=>`<option value="${m}">${m.replace('-','年')}月</option>`).join('');if(historyMonth)$('leaveHistoryMonth').value=historyMonth;
+  renderLeaveHistory();
+}
+$('saveMonthlyLeave').onclick=()=>{
+  const month=$('leaveMonth').value,inputs=[...document.querySelectorAll('.monthly-leave-input')];if(!month||!inputs.length)return;
+  const invalid=inputs.find(input=>input.value===''||Number(input.value)<Number(input.dataset.otherUsed)||Number(input.value)<0);
+  if(invalid){alert(`${invalid.dataset.employeeName}さんの使用日数を確認してください。個別登録済みの日数（${dayText(invalid.dataset.otherUsed)}）より少なくする場合は、先に該当履歴を削除してください。`);invalid.focus();return}
+  inputs.forEach(input=>{
+    const employeeId=input.dataset.employeeId,id=monthlyLeaveId(month,employeeId),otherUsed=Number(input.dataset.otherUsed),totalUsed=Number(input.value),bulkDays=totalUsed-otherUsed;
+    data.leaves=data.leaves.filter(l=>l.id!==id);
+    if(bulkDays>0)data.leaves.push({id,employeeId,type:'take',date:monthLastDay(month),days:bulkDays,note:`${month.replace('-','年')}月 月次一括入力`});
+  });
+  saveData();toast(`${month.replace('-','年')}月分の有給使用日数を一括保存しました`);
+};
+function renderLeaveHistory(){const filter=$('leaveHistoryFilter').value,month=$('leaveHistoryMonth').value,list=[...data.leaves].filter(l=>(!filter||l.employeeId===filter)&&(!month||l.date?.startsWith(month))).sort((a,b)=>b.date.localeCompare(a.date));$('leaveHistoryRows').innerHTML=list.length?list.map(l=>{const e=data.employees.find(x=>x.id===l.employeeId);return`<tr><td>${fmt(l.date)}</td><td>${esc(e?.name||'削除済み')}</td><td>${l.type==='grant'?'付与':l.type==='take'?'取得':'調整'}</td><td>${l.type==='take'?'-':'+'}${dayText(l.days)}</td><td>${esc(l.note||'-')}</td><td><button class="icon-btn" onclick="deleteLeave('${l.id}')">削除</button></td></tr>`}).join(''):'<tr><td class="empty-cell" colspan="6">履歴はありません</td></tr>'}
+$('leaveHistoryFilter').onchange=renderLeaveHistory;$('leaveHistoryMonth').onchange=renderLeaveHistory;$('leaveMonth').onchange=renderLeave;
 $('retireForm').onsubmit=e=>{e.preventDefault();const emp=data.employees.find(x=>x.id===$('retireEmployee').value);if(!emp)return;if(!confirm(`${emp.name}さんを退職者として登録しますか？`))return;emp.retireDate=$('retireDate').value;emp.retireReason=$('retireReason').value;emp.retireNote=$('retireNote').value.trim();saveData();e.target.reset();showPage('retirees');toast('退職処理を完了しました')};
 function renderRetire(){const opts=activeEmployees().map(e=>`<option value="${e.id}">${esc(e.employeeNo)} ${esc(e.name)}</option>`).join('');$('retireEmployee').innerHTML='<option value="">社員を選択</option>'+opts;const q=$('retireeSearch').value.toLowerCase(),list=data.employees.filter(e=>e.retireDate&&(!q||[e.name,e.kana,e.employeeNo].some(v=>(v||'').toLowerCase().includes(q))));$('retireeRows').innerHTML=list.length?list.map(e=>`<tr><td>${esc(e.employeeNo)}</td><td><b>${esc(e.name)}</b></td><td>${esc(e.department||'-')}</td><td>${fmt(e.hireDate)}</td><td>${fmt(e.retireDate)}</td><td><span class="badge retired">${esc(e.retireReason)}</span></td><td><button class="icon-btn" onclick="selectLedger('${e.id}')">名簿</button> <button class="icon-btn" onclick="restoreEmployee('${e.id}')">在籍に戻す</button></td></tr>`).join(''):'<tr><td class="empty-cell" colspan="7">退職者はいません</td></tr>'}$('retireeSearch').oninput=renderRetire;
 function selectLedger(id){$('ledgerEmployee').value=id;renderLedger();showPage('ledger')}
