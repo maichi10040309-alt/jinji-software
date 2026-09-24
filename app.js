@@ -24,6 +24,12 @@ function renderEmployees(){const q=$('employeeSearch').value.toLowerCase(),dep=$
 $('employeeSearch').oninput=renderEmployees;$('departmentFilter').onchange=renderEmployees;
 $('leaveForm').onsubmit=e=>{e.preventDefault();data.leaves.push({id:uid(),employeeId:$('leaveEmployee').value,type:$('leaveType').value,date:$('leaveDate').value,days:Number($('leaveDays').value),note:$('leaveNote').value.trim()});saveData();e.target.reset();$('leaveDate').value=new Date().toISOString().slice(0,10);toast('有給履歴を登録しました')};
 function deleteLeave(id){if(!confirm('この有給履歴を削除しますか？'))return;data.leaves=data.leaves.filter(l=>l.id!==id);saveData();toast('履歴を削除しました')}
+$('clearLeaveData').onclick=()=>{
+  if(!data.leaves.length){toast('削除する有給データはありません');return}
+  if(!confirm('全社員の有給データ（付与・使用・調整履歴と残日数）を削除します。社員情報は削除されません。続けますか？'))return;
+  if(!confirm('この操作は元に戻せません。本当にすべての有給データを削除しますか？'))return;
+  data.leaves=[];saveData();toast('すべての有給データを削除しました');
+};
 function dayText(value){return Number(value).toFixed(3).replace(/\.?0+$/,'')+'日'}
 function monthlyLeaveId(month,employeeId){return`monthly-leave-${month}-${employeeId}`}
 function dateText(date){const [year,month,day]=date.split('-').map(Number);return`${year}年${month}月${day}日`}
