@@ -1,8 +1,9 @@
 const STORAGE_KEY='jinjiSoftwareDataV1';
+const AUTO_GRANT_START='2027-01-01';
 let data=loadData();
 const $=id=>document.getElementById(id);
 const pages={dashboard:'ダッシュボード','employee-form':'社員登録',employees:'社員一覧',leave:'有給管理','entry-exit':'入社・退社登録',retirees:'退職者一覧',ledger:'労働者名簿',settings:'データ管理'};
-function loadData(){try{return JSON.parse(localStorage.getItem(STORAGE_KEY))||{employees:[],leaves:[]}}catch{return{employees:[],leaves:[]}}}
+function loadData(){try{const saved=JSON.parse(localStorage.getItem(STORAGE_KEY))||{};return{employees:Array.isArray(saved.employees)?saved.employees:[],leaves:Array.isArray(saved.leaves)?saved.leaves:[],attendance:Array.isArray(saved.attendance)?saved.attendance:[]}}catch{return{employees:[],leaves:[],attendance:[]}}}
 function saveData(){localStorage.setItem(STORAGE_KEY,JSON.stringify(data));renderAll()}
 function esc(v=''){return String(v).replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]))}
 function fmt(d){if(!d)return'-';const [y,m,day]=d.split('-');return `${y}/${m}/${day}`}
@@ -10,6 +11,32 @@ function uid(){return crypto.randomUUID?crypto.randomUUID():Date.now().toString(
 function toast(msg){const t=$('toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2300)}
 function activeEmployees(){return data.employees.filter(e=>!e.retireDate)}
 function leaveBalance(id){return data.leaves.filter(l=>l.employeeId===id).reduce((n,l)=>n+(l.type==='take'?-Number(l.days):Number(l.days)),0)}
+const GRANT_DAYS={5:[10,11,12,14,16,18,20],4:[7,8,9,10,12,13,15],3:[5,6,6,8,9,10,11],2:[3,4,4,5,6,6,7],1:[1,2,2,2,3,3,3]};
+function addMonths(date,months){const [year,month,day]=date.split('-').map(Number),first=new Date(Date.UTC(year,month-1+months,1)),last=new Date(Date.UTC(first.getUTCFullYear(),first.getUTCMonth()+1,0)).getUTCDate();return`${first.getUTCFullYear()}-${String(first.getUTCMonth()+1).padStart(2,'0')}-${String(Math.min(day,last)).padStart(2,'0')}`}
+function firstAnnualGrantYear(firstDate){const year=Number(firstDate.slice(0,4));return firstDate<`${year}-04-01`?year:year+1}
+function grantDays(weeklyDays,index){const table=GRANT_DAYS[Number(weeklyDays)];return table?table[Math.min(index,table.length-1)]:0}
+function attendanceId(employeeId,year){return`${employeeId}-${year}`}
+function attendanceFor(employeeId,year){return data.attendance.find(a=>a.id===attendanceId(employeeId,year))}
+function attendanceRate(employee,year){const scheduled=Number(employee.weeklyDays||0)*52,absent=Number(attendanceFor(employee.id,year)?.absentDays||0);return scheduled?Math.max(0,(scheduled-absent)/scheduled):0}
+function grantForApril(employee,year){if(!employee.hireDate)return null;const first=addMonths(employee.hireDate,6),date=`${year}-04-01`;if(first===date)return{date,index:0,days:grantDays(employee.weeklyDays,0),kind:'initial'};const firstYear=firstAnnualGrantYear(first);if(year<firstYear)return null;const index=1+(year-firstYear);return{date,index,days:grantDays(employee.weeklyDays,index),kind:'annual'}}
+function applyAutomaticLeaveGrants(today=new Date().toISOString().slice(0,10)){
+  let added=0;
+  activeEmployees().forEach(employee=>{
+    if(!employee.hireDate||!GRANT_DAYS[Number(employee.weeklyDays)])return;
+    const first=addMonths(employee.hireDate,6),firstId=`auto-grant-initial-${employee.id}-${first}`;
+    if(first>=AUTO_GRANT_START&&first<=today&&!data.leaves.some(l=>l.id===firstId)){
+      data.leaves.push({id:firstId,employeeId:employee.id,type:'grant',date:first,days:grantDays(employee.weeklyDays,0),note:'入社6か月後 自動付与'});added++;
+    }
+    const currentYear=Number(today.slice(0,4)),startYear=Math.max(2027,firstAnnualGrantYear(first));
+    for(let year=startYear;year<=currentYear;year++){
+      const grant=grantForApril(employee,year),id=`auto-grant-annual-${employee.id}-${year}`;
+      if(!grant||grant.kind==='initial'||grant.date>today||data.leaves.some(l=>l.id===id)||attendanceRate(employee,year-1)<0.8)continue;
+      data.leaves.push({id,employeeId:employee.id,type:'grant',date:grant.date,days:grant.days,note:`${year}年度 4月1日自動付与`});added++;
+    }
+  });
+  if(added)localStorage.setItem(STORAGE_KEY,JSON.stringify(data));
+  return added;
+}
 function showPage(id){document.querySelectorAll('.page').forEach(p=>p.classList.toggle('active',p.id===id));document.querySelectorAll('#nav button').forEach(b=>b.classList.toggle('active',b.dataset.page===id));$('pageTitle').textContent=pages[id];document.querySelector('.sidebar').classList.remove('open');if(id==='ledger')renderLedger();window.scrollTo(0,0)}
 document.querySelectorAll('[data-page]').forEach(b=>b.onclick=()=>showPage(b.dataset.page));document.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>showPage(b.dataset.go));$('menuBtn').onclick=()=>document.querySelector('.sidebar').classList.toggle('open');
 $('today').textContent=new Intl.DateTimeFormat('ja-JP',{year:'numeric',month:'long',day:'numeric',weekday:'long'}).format(new Date());
@@ -59,8 +86,23 @@ function renderLeave(){
   }).join(''):'<tr><td class="empty-cell" colspan="6">社員が登録されていません</td></tr>';
   const historyMonth=$('leaveHistoryMonth').value,months=[...new Set(data.leaves.map(l=>l.date?.slice(0,7)).filter(Boolean))].sort().reverse();
   $('leaveHistoryMonth').innerHTML='<option value="">全期間</option>'+months.map(m=>`<option value="${m}">${m.replace('-','年')}月</option>`).join('');if(historyMonth)$('leaveHistoryMonth').value=historyMonth;
+  renderAttendance();
   renderLeaveHistory();
 }
+function renderAttendance(){
+  const now=new Date(),defaultYear=now.getMonth()>=3?now.getFullYear():now.getFullYear()-1,year=Number($('attendanceYear').value||defaultYear);$('attendanceYear').value=year;
+  $('attendanceRows').innerHTML=activeEmployees().length?activeEmployees().map(e=>{
+    const scheduled=Number(e.weeklyDays||0)*52,record=attendanceFor(e.id,year),absent=record?.absentDays??'',rate=scheduled?Math.max(0,(scheduled-Number(absent||0))/scheduled):0,grant=grantForApril(e,year+1),eligible=grant&&rate>=0.8;
+    const grantText=!grant?'対象外':eligible?`${grant.days}日（付与予定）`:`${grant.days}日（出勤率不足）`;
+    return`<tr><td>${esc(e.employeeNo)}</td><td><b>${esc(e.name)}</b></td><td>${e.weeklyDays||'-'}日</td><td>${scheduled||'-'}日</td><td><input class="attendance-input" data-employee-id="${e.id}" type="number" min="0" step="0.5" value="${absent}" placeholder="0"></td><td>${scheduled?(rate*100).toFixed(1)+'%':'-'}</td><td><b style="${grant&&!eligible?'color:#dc2626':''}">${grantText}</b></td></tr>`;
+  }).join(''):'<tr><td class="empty-cell" colspan="7">社員が登録されていません</td></tr>';
+}
+$('attendanceYear').onchange=renderAttendance;
+$('saveAttendance').onclick=()=>{
+  const year=Number($('attendanceYear').value),inputs=[...document.querySelectorAll('.attendance-input')];
+  inputs.forEach(input=>{const id=attendanceId(input.dataset.employeeId,year),value=input.value;data.attendance=data.attendance.filter(a=>a.id!==id);if(value!=='')data.attendance.push({id,employeeId:input.dataset.employeeId,year,absentDays:Number(value)});});
+  const added=applyAutomaticLeaveGrants();localStorage.setItem(STORAGE_KEY,JSON.stringify(data));renderAll();toast(added?`出勤状況を保存し、有給を${added}件自動付与しました`:'出勤状況を保存しました');
+};
 $('saveMonthlyLeave').onclick=()=>{
   const month=$('leaveMonth').value,period=leavePeriod(month),inputs=[...document.querySelectorAll('.monthly-leave-input')];if(!month||!inputs.length)return;
   const invalid=inputs.find(input=>input.value===''||Number(input.value)<Number(input.dataset.otherUsed)||Number(input.value)<0);
@@ -131,6 +173,6 @@ $('employeeCsv').onchange=async event=>{
   event.target.value='';
 };
 $('exportData').onclick=()=>{const blob=new Blob([JSON.stringify({...data,exportedAt:new Date().toISOString()},null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`人事管理バックアップ_${new Date().toISOString().slice(0,10)}.json`;a.click();URL.revokeObjectURL(a.href);toast('バックアップを書き出しました')};
-$('importData').onchange=async e=>{const file=e.target.files[0];if(!file)return;try{const parsed=JSON.parse(await file.text());if(!Array.isArray(parsed.employees)||!Array.isArray(parsed.leaves))throw Error();if(!confirm('現在のデータをバックアップ内容で置き換えますか？'))return;data={employees:parsed.employees,leaves:parsed.leaves};saveData();toast('データを復元しました')}catch{alert('正しいバックアップファイルではありません')}e.target.value=''};
-$('clearData').onclick=()=>{if(!confirm('本当に全データを削除しますか？'))return;if(!confirm('この操作は元に戻せません。削除を実行しますか？'))return;data={employees:[],leaves:[]};saveData();resetEmployeeForm();toast('全データを削除しました')};
-renderAll();
+$('importData').onchange=async e=>{const file=e.target.files[0];if(!file)return;try{const parsed=JSON.parse(await file.text());if(!Array.isArray(parsed.employees)||!Array.isArray(parsed.leaves))throw Error();if(!confirm('現在のデータをバックアップ内容で置き換えますか？'))return;data={employees:parsed.employees,leaves:parsed.leaves,attendance:Array.isArray(parsed.attendance)?parsed.attendance:[]};saveData();toast('データを復元しました')}catch{alert('正しいバックアップファイルではありません')}e.target.value=''};
+$('clearData').onclick=()=>{if(!confirm('本当に全データを削除しますか？'))return;if(!confirm('この操作は元に戻せません。削除を実行しますか？'))return;data={employees:[],leaves:[],attendance:[]};saveData();resetEmployeeForm();toast('全データを削除しました')};
+applyAutomaticLeaveGrants();renderAll();
